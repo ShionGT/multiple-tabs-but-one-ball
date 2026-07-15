@@ -79,11 +79,26 @@
         }
 
         // === AcrossTabs Setup ===
+        // onReady fires synchronously inside the constructor, so we cannot
+        // reference `child` there (temporal dead zone). We capture the
+        // instance via a deferred microtask instead.
+        let child;
         const AcrossTabsChild = AcrossTabs.default ? AcrossTabs.default.Child : AcrossTabs.Child;
-        const child = new AcrossTabsChild({
+        child = new AcrossTabsChild({
             onReady: () => {
-                myTabId = child.getTabInfo().id;
-                console.log('Child ready, tabId:', myTabId);
+                // Defer to escape the TDZ — `child` is assigned by now
+                Promise.resolve().then(() => {
+                    try {
+                        myTabId = child.getTabInfo().id;
+                        console.log('Child ready, tabId:', myTabId);
+                    } catch (e) {
+                        // getTabInfo may not be ready yet; retry shortly
+                        setTimeout(() => {
+                            myTabId = child.getTabInfo().id;
+                            console.log('Child ready, tabId:', myTabId);
+                        }, 100);
+                    }
+                });
             },
             onParentCommunication: (message) => {
                 if (!message) return;
