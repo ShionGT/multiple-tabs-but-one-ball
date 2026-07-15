@@ -15,9 +15,13 @@
     <script src="https://unpkg.com/across-tabs@1.4.0/dist/across-tabs.min.js"></script>
     <script>
         /*!
-         * Multi-Window Bouncing Ball - Child
+         * Multi-Window Bouncing Ball - Child Tab
+         * Mirrors the ball position broadcast by the parent.
+         * Draws the ball whenever it is within this tab's viewport.
+         * Works whether tabs are overlapping or detached.
          */
 
+        // === Canvas Setup ===
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
 
@@ -28,6 +32,7 @@
         resizeCanvas();
         window.addEventListener('resize', resizeCanvas);
 
+        // === Ball Class ===
         class Ball {
             constructor(x, y, vx, vy, radius) {
                 this.x = x;
@@ -56,9 +61,8 @@
             }
         }
 
-        const tabs = {};
-        let myTabId = null;
         let ball = null;
+        let myTabId = null;
 
         function isBallVisible() {
             if (!ball) return false;
@@ -74,6 +78,7 @@
             );
         }
 
+        // === AcrossTabs Setup ===
         const AcrossTabsChild = AcrossTabs.default ? AcrossTabs.default.Child : AcrossTabs.Child;
         const child = new AcrossTabsChild({
             onReady: () => {
@@ -84,32 +89,14 @@
                 if (!message) return;
                 if (message.type === 'ball') {
                     if (!ball) {
-                        ball = new Ball(
-                            window.screenX + window.innerWidth / 2,
-                            window.screenY + window.innerHeight / 2,
-                            0, 0, 20
-                        );
+                        ball = new Ball(0, 0, 0, 0, 20);
                     }
                     ball.setFromData(message.ball);
-                }
-                if (message.type === 'window') {
-                    tabs[message.tab.id] = message.tab;
                 }
             },
         });
 
-        document.addEventListener('visibilitychange', () => {
-            if (document.visibilityState === 'visible' && myTabId) {
-                child.sendMessageToParent({ type: 'TAB_ACTIVE', tabId: myTabId });
-            }
-        });
-
-        window.addEventListener('focus', () => {
-            if (myTabId) {
-                child.sendMessageToParent({ type: 'TAB_ACTIVE', tabId: myTabId });
-            }
-        });
-
+        // === Game Loop ===
         function loop() {
             if (ball && isBallVisible()) {
                 ball.draw();

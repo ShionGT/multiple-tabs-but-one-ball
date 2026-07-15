@@ -17,9 +17,10 @@
     <script src="https://unpkg.com/across-tabs@1.4.0/dist/across-tabs.min.js"></script>
     <script>
         /*!
-         * Multi-Window Bouncing Ball - Parent
+         * Multi-Window Bouncing Ball - Parent Tab
          */
 
+        // === Canvas Setup ===
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
 
@@ -30,6 +31,7 @@
         resizeCanvas();
         window.addEventListener('resize', resizeCanvas);
 
+        // === Ball Class ===
         class Ball {
             constructor(x, y, vx, vy, radius) {
                 this.x = x;
@@ -37,7 +39,6 @@
                 this.vx = vx;
                 this.vy = vy;
                 this.radius = radius;
-                this.isVisible = true;
             }
 
             update(bounds) {
@@ -71,21 +72,9 @@
                 ctx.arc(localX, localY, this.radius, 0, Math.PI * 2);
                 ctx.fill();
             }
-
-            checkVisibility() {
-                const left = window.screenX;
-                const right = left + window.innerWidth;
-                const top = window.screenY;
-                const bottom = top + window.innerHeight;
-                this.isVisible = (
-                    this.x + this.radius >= left &&
-                    this.x - this.radius <= right &&
-                    this.y + this.radius >= top &&
-                    this.y - this.radius <= bottom
-                );
-            }
         }
 
+        // === Tab Tracking ===
         const tabs = {};
         const TAB_ID = 'parent-' + Math.random().toString(36).slice(2, 11);
 
@@ -115,16 +104,28 @@
             return { left, right, top, bottom };
         }
 
+        // === Ball Initialization - guaranteed non-zero velocity ===
+        function makeVelocity() {
+            let vx, vy;
+            do {
+                vx = (Math.random() - 0.5) * 12;
+                vy = (Math.random() - 0.5) * 12;
+            } while (Math.abs(vx) < 3 || Math.abs(vy) < 3);
+            return { vx, vy };
+        }
+        const vel = makeVelocity();
         const ball = new Ball(
             window.screenX + window.innerWidth / 2,
             window.screenY + window.innerHeight / 2,
-            (Math.random() - 0.5) * 12,
-            (Math.random() - 0.5) * 12,
+            vel.vx,
+            vel.vy,
             20
         );
 
+        // === AcrossTabs Setup ===
+        // Use `tabManager` instead of `parent` to avoid collision with window.parent
         const AcrossTabsParent = AcrossTabs.default ? AcrossTabs.default.Parent : AcrossTabs.Parent;
-        const parent = new AcrossTabsParent({
+        const tabManager = new AcrossTabsParent({
             onReady: () => console.log('Parent ready, tabId:', TAB_ID),
             onChildCommunication: (message, tabInfo) => {
                 if (message.type === 'window') {
@@ -134,18 +135,21 @@
         });
 
         document.getElementById('createTabButton').addEventListener('click', () => {
-            parent.openNewTab({ url: 'pages/child.html' });
+            tabManager.openNewTab({ url: 'pages/child.html' });
         });
 
+        // === Game Loop ===
         function loop() {
             tabs[TAB_ID] = getMyTab();
             ball.update(getWorldBounds());
-            ball.checkVisibility();
             ball.draw();
-            parent.communicate({
+
+            // Broadcast ball state to all child tabs
+            tabManager.broadCastAll({
                 type: 'ball',
                 ball: { x: ball.x, y: ball.y, vx: ball.vx, vy: ball.vy, radius: ball.radius },
             });
+
             requestAnimationFrame(loop);
         }
 
