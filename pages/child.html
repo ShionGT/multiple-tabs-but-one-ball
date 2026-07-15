@@ -2,16 +2,122 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ball Bounce Demo</title>
+    <title>Ball Bounce Demo - Child</title>
+    <style>
+        body, html { margin: 0; padding: 0; overflow: hidden; background: #000; }
+        #gameCanvas { display: block; }
+        footer { position: fixed; bottom: 0; width: 100%; text-align: center; color: #666; font-size: 12px; }
+    </style>
 </head>
 <body>
     <canvas id="gameCanvas" width="800" height="600"></canvas>
-    <footer>
-        <script type="text/javascript" src="js/ball.js"></script>
-        <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/across-tabs/1.0.0/across-tabs.min.js"></script>
-        <script type="text/javascript" src="js/child-script.js"></script>
-        <p>&copy; 2026 Shion Toda. All rights reserved.</p>
-    </footer>
+    <footer>&copy; 2026 Shion Toda. All rights reserved.</footer>
+    <script src="https://unpkg.com/across-tabs@1.4.0/dist/across-tabs.min.js"></script>
+    <script>
+        /*!
+         * Multi-Window Bouncing Ball - Child
+         */
+
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+
+        class Ball {
+            constructor(x, y, vx, vy, radius) {
+                this.x = x;
+                this.y = y;
+                this.vx = vx;
+                this.vy = vy;
+                this.radius = radius;
+            }
+
+            draw() {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                const localX = this.x - window.screenX;
+                const localY = this.y - window.screenY;
+                ctx.fillStyle = 'red';
+                ctx.beginPath();
+                ctx.arc(localX, localY, this.radius, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            setFromData(data) {
+                this.x = data.x;
+                this.y = data.y;
+                this.vx = data.vx;
+                this.vy = data.vy;
+                this.radius = data.radius;
+            }
+        }
+
+        const tabs = {};
+        let myTabId = null;
+        let ball = null;
+
+        function isBallVisible() {
+            if (!ball) return false;
+            const left = window.screenX;
+            const right = left + window.innerWidth;
+            const top = window.screenY;
+            const bottom = top + window.innerHeight;
+            return (
+                ball.x + ball.radius >= left &&
+                ball.x - ball.radius <= right &&
+                ball.y + ball.radius >= top &&
+                ball.y - ball.radius <= bottom
+            );
+        }
+
+        const AcrossTabsChild = AcrossTabs.default ? AcrossTabs.default.Child : AcrossTabs.Child;
+        const child = new AcrossTabsChild({
+            onReady: () => {
+                myTabId = child.getTabInfo().id;
+                console.log('Child ready, tabId:', myTabId);
+            },
+            onParentCommunication: (message) => {
+                if (!message) return;
+                if (message.type === 'ball') {
+                    if (!ball) {
+                        ball = new Ball(
+                            window.screenX + window.innerWidth / 2,
+                            window.screenY + window.innerHeight / 2,
+                            0, 0, 20
+                        );
+                    }
+                    ball.setFromData(message.ball);
+                }
+                if (message.type === 'window') {
+                    tabs[message.tab.id] = message.tab;
+                }
+            },
+        });
+
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible' && myTabId) {
+                child.sendMessageToParent({ type: 'TAB_ACTIVE', tabId: myTabId });
+            }
+        });
+
+        window.addEventListener('focus', () => {
+            if (myTabId) {
+                child.sendMessageToParent({ type: 'TAB_ACTIVE', tabId: myTabId });
+            }
+        });
+
+        function loop() {
+            if (ball && isBallVisible()) {
+                ball.draw();
+            }
+            requestAnimationFrame(loop);
+        }
+
+        loop();
+    </script>
 </body>
 </html>

@@ -2,16 +2,154 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Ball Bounce Demo</title>
+    <style>
+        body, html { margin: 0; padding: 0; overflow: hidden; background: #000; }
+        #gameCanvas { display: block; }
+        #createTabButton { position: fixed; top: 10px; left: 10px; z-index: 100; padding: 8px 16px; background: #c5a572; color: #000; border: none; cursor: pointer; font-family: sans-serif; text-transform: uppercase; }
+        footer { position: fixed; bottom: 0; width: 100%; text-align: center; color: #666; font-size: 12px; }
+    </style>
 </head>
 <body>
     <button id="createTabButton">Create New Tab</button>
-    <footer>
-        <script type="text/javascript" src="js/ball.js"></script>
-        <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/across-tabs/1.0.0/across-tabs.min.js"></script>
-        <script type="text/javascript" src="js/parent-script.js"></script>
-        <p>&copy; 2026 Shion Toda. All rights reserved.</p>
-    </footer>
+    <canvas id="gameCanvas" width="800" height="600"></canvas>
+    <footer>&copy; 2026 Shion Toda. All rights reserved.</footer>
+    <script src="https://unpkg.com/across-tabs@1.4.0/dist/across-tabs.min.js"></script>
+    <script>
+        /*!
+         * Multi-Window Bouncing Ball - Parent
+         */
+
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+
+        class Ball {
+            constructor(x, y, vx, vy, radius) {
+                this.x = x;
+                this.y = y;
+                this.vx = vx;
+                this.vy = vy;
+                this.radius = radius;
+                this.isVisible = true;
+            }
+
+            update(bounds) {
+                this.x += this.vx;
+                this.y += this.vy;
+
+                if (this.x - this.radius <= bounds.left) {
+                    this.x = bounds.left + this.radius;
+                    this.vx *= -1;
+                }
+                if (this.x + this.radius >= bounds.right) {
+                    this.x = bounds.right - this.radius;
+                    this.vx *= -1;
+                }
+                if (this.y - this.radius <= bounds.top) {
+                    this.y = bounds.top + this.radius;
+                    this.vy *= -1;
+                }
+                if (this.y + this.radius >= bounds.bottom) {
+                    this.y = bounds.bottom - this.radius;
+                    this.vy *= -1;
+                }
+            }
+
+            draw() {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                const localX = this.x - window.screenX;
+                const localY = this.y - window.screenY;
+                ctx.fillStyle = 'red';
+                ctx.beginPath();
+                ctx.arc(localX, localY, this.radius, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            checkVisibility() {
+                const left = window.screenX;
+                const right = left + window.innerWidth;
+                const top = window.screenY;
+                const bottom = top + window.innerHeight;
+                this.isVisible = (
+                    this.x + this.radius >= left &&
+                    this.x - this.radius <= right &&
+                    this.y + this.radius >= top &&
+                    this.y - this.radius <= bottom
+                );
+            }
+        }
+
+        const tabs = {};
+        const TAB_ID = 'parent-' + Math.random().toString(36).slice(2, 11);
+
+        function getMyTab() {
+            return {
+                id: TAB_ID,
+                x: window.screenX,
+                y: window.screenY,
+                width: window.innerWidth,
+                height: window.innerHeight,
+            };
+        }
+
+        function getWorldBounds() {
+            const allTabs = Object.values(tabs);
+            if (allTabs.length === 0) {
+                const me = getMyTab();
+                return { left: me.x, right: me.x + me.width, top: me.y, bottom: me.y + me.height };
+            }
+            let left = Infinity, right = -Infinity, top = Infinity, bottom = -Infinity;
+            for (const tab of allTabs) {
+                left = Math.min(left, tab.x);
+                right = Math.max(right, tab.x + tab.width);
+                top = Math.min(top, tab.y);
+                bottom = Math.max(bottom, tab.y + tab.height);
+            }
+            return { left, right, top, bottom };
+        }
+
+        const ball = new Ball(
+            window.screenX + window.innerWidth / 2,
+            window.screenY + window.innerHeight / 2,
+            (Math.random() - 0.5) * 12,
+            (Math.random() - 0.5) * 12,
+            20
+        );
+
+        const AcrossTabsParent = AcrossTabs.default ? AcrossTabs.default.Parent : AcrossTabs.Parent;
+        const parent = new AcrossTabsParent({
+            onReady: () => console.log('Parent ready, tabId:', TAB_ID),
+            onChildCommunication: (message, tabInfo) => {
+                if (message.type === 'window') {
+                    tabs[message.tab.id] = message.tab;
+                }
+            },
+        });
+
+        document.getElementById('createTabButton').addEventListener('click', () => {
+            parent.openNewTab({ url: 'pages/child.html' });
+        });
+
+        function loop() {
+            tabs[TAB_ID] = getMyTab();
+            ball.update(getWorldBounds());
+            ball.checkVisibility();
+            ball.draw();
+            parent.communicate({
+                type: 'ball',
+                ball: { x: ball.x, y: ball.y, vx: ball.vx, vy: ball.vy, radius: ball.radius },
+            });
+            requestAnimationFrame(loop);
+        }
+
+        loop();
+    </script>
 </body>
 </html>

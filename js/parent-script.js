@@ -1,44 +1,14 @@
 /**********************************************************
- * Multi-Window Bouncing Ball (Global Coordinates)
- * Requires:
- *   <canvas id="gameCanvas"></canvas>
- *   AcrossTabs library loaded.
+ * Multi-Window Bouncing Ball (Parent Tab)
  **********************************************************/
-
-/***********************
- * ACROSS TABS SETUP
- ***********************/
-// ES Modules (Vite, Webpack, etc.)
-import AcrossTabs from "across-tabs";
-
-// CommonJS
-const AcrossTabs = require("across-tabs");
-
-const parent = new AcrossTabs.Parent({
-  onChildCommunication: (message, tabInfo) => {
-    if (message.type === "TAB_ACTIVE") {
-      currentActiveTabId = message.tabId;
-
-      // Tell all tabs who the current active tab is
-      parent.broadCastAll({
-        type: "ACTIVE_TAB_CHANGED",
-        activeTabId: currentActiveTabId,
-      });
-    }
-  },
-});
-
-createTabButton = document.getElementById("createTabButton");
-
-createTabButton.addEventListener("click", () => {
-  parent.openNewTab({ url: "pages/child.html" });
-}
-
 
 /***********************
  * TAB DATA
  ***********************/
 const tabs = {};
+let currentActiveTabId = null;
+let ball = null;
+let TAB_ID = "parent-" + Math.random().toString(36).slice(2, 11);
 
 function getMyTab() {
   return {
@@ -52,53 +22,23 @@ function getMyTab() {
 
 function broadcastWindowInfo() {
   const info = getMyTab();
-
   tabs[TAB_ID] = info;
-
-  if (parent.communicate) {
-    parent.communicate({
-      type: "window",
-      tab: info,
-    });
-  }
 }
 
-setInterval(broadcastWindowInfo, 100);
+function isBallVisible() {
+  if (!ball) return false;
+  const left = window.screenX;
+  const right = left + window.innerWidth;
+  const top = window.screenY;
+  const bottom = top + window.innerHeight;
 
-window.addEventListener("resize", broadcastWindowInfo);
-window.addEventListener("move", broadcastWindowInfo);
-
-/***********************
- * ACROSS TABS CALLBACKS
- ***********************/
-function onReady() {}
-
-function onInitialize() {}
-
-function onParentDisconnect() {}
-
-function onParentCommunication(data) {
-  if (!data) return;
-
-  if (data.type === "window") {
-    tabs[data.tab.id] = data.tab;
-  }
-
-  if (data.type === "ball") {
-    ball = data.ball;
-  }
+  return (
+    ball.x + ball.radius >= left &&
+    ball.x - ball.radius <= right &&
+    ball.y + ball.radius >= top &&
+    ball.y - ball.radius <= bottom
+  );
 }
-
-/***********************
- * BALL (GLOBAL COORDINATES)
- ***********************/
-ball = new Ball(
-  window.screenX + window.innerWidth / 2,
-  window.screenY + window.innerHeight / 2,
-  (Math.random() - 0.5) * 12,
-  (Math.random() - 0.5) * 12,
-  20,
-);
 
 /***********************
  * WORLD BOUNDARY
@@ -128,39 +68,71 @@ function getWorldBounds() {
     bottom = Math.max(bottom, tab.y + tab.height);
   }
 
-  return {
-    left,
-    right,
-    top,
-    bottom,
-  };
+  return { left, right, top, bottom };
 }
 
 /***********************
- * CHECK IF INSIDE WINDOW
+ * INITIALIZE BALL IMMEDIATELY (parent always owns the ball)
  ***********************/
-function isBallVisible() {
-  const left = window.screenX;
-  const right = left + window.innerWidth;
-  const top = window.screenY;
-  const bottom = top + window.innerHeight;
+// Ensure canvas is initialized
+initCanvas();
+ball = new Ball(
+  window.screenX + window.innerWidth / 2,
+  window.screenY + window.innerHeight / 2,
+  (Math.random() - 0.5) * 12,
+  (Math.random() - 0.5) * 12,
+  20
+);
 
-  return (
-    ball.x + ball.radius >= left &&
-    ball.x - ball.radius <= right &&
-    ball.y + ball.radius >= top &&
-    ball.y - ball.radius <= bottom
-  );
-}
+/***********************
+ * ACROSS TABS SETUP
+ ***********************/
+// AcrossTabs is loaded as a global via UMD bundle
+const AcrossTabsParent = AcrossTabs.default ? AcrossTabs.default.Parent : AcrossTabs.Parent;
+const parent = new AcrossTabsParent({
+  onReady: () => {
+    console.log("Parent ready, tabId:", TAB_ID);
+  },
+  onChildCommunication: (message, tabInfo) => {
+    if (message.type === "TAB_ACTIVE") {
+      currentActiveTabId = message.tabId;
+      parent.broadCastAll({
+        type: "ACTIVE_TAB_CHANGED",
+        activeTabId: currentActiveTabId,
+      });
+    }
+    if (message.type === "window") {
+      // Store window info from child
+      tabs[message.tab.id] = message.tab;
+    }
+  },
+});
+
+createTabButton = document.getElementById("createTabButton");
+createTabButton.addEventListener("click", () => {
+  parent.openNewTab({ url: "pages/child.html" });
+});
 
 /***********************
  * GAME LOOP
  ***********************/
 function loop() {
+  if (!ball) {
+    requestAnimationFrame(loop);
+    return;
+  }
+
   tabs[TAB_ID] = getMyTab();
 
-  ball.update();
+  ball.update(getWorldBounds());
+  ball.checkVisibility();
   ball.draw();
+
+  // Broadcast ball state to other tabs
+  parent.communicate({
+    type: "ball",
+    ball: { x: ball.x, y: ball.y, vx: ball.vx, vy: ball.vy, radius: ball.radius },
+  });
 
   requestAnimationFrame(loop);
 }

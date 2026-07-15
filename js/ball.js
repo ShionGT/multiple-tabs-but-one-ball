@@ -1,4 +1,35 @@
-// set up ball
+// Ball class - used by both parent and child tabs
+let canvas = null;
+let ctx = null;
+
+function initCanvas() {
+  console.log('initCanvas called');
+  canvas = document.getElementById("gameCanvas");
+  console.log('canvas found:', !!canvas);
+  ctx = canvas ? canvas.getContext("2d") : null;
+  console.log('ctx found:', !!ctx);
+  
+  if (!canvas) return;
+  
+  function resizeCanvas() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+  }
+
+  resizeCanvas();
+  window.addEventListener("resize", resizeCanvas);
+}
+
+// Initialize canvas when DOM is ready
+console.log('readyState:', document.readyState);
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initCanvas);
+} else {
+  // DOM already ready, but scripts may still be executing
+  // Use setTimeout to ensure we run after full load
+  setTimeout(initCanvas, 0);
+}
+
 class Ball {
   constructor(x, y, vx, vy, radius) {
     this.x = x;
@@ -6,16 +37,15 @@ class Ball {
     this.vx = vx;
     this.vy = vy;
     this.radius = radius;
+    this.isVisible = true;
   }
 
   /***********************
-   * UPDATE
+   * UPDATE - physics (called only by parent)
    ***********************/
-  update() {
+  update(bounds) {
     this.x += this.vx;
     this.y += this.vy;
-
-    const bounds = getWorldBounds();
 
     if (this.x - this.radius <= bounds.left) {
       this.x = bounds.left + this.radius;
@@ -36,42 +66,50 @@ class Ball {
       this.y = bounds.bottom - this.radius;
       this.vy *= -1;
     }
-
-    if (parent.communicate) {
-      parent.communicate({
-        type: "ball",
-        ball: this,
-      });
-    }
   }
 
   /***********************
-   * DRAW
+   * DRAW - render to canvas
    ***********************/
   draw() {
+    if (!ctx) return;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    if (!isBallVisible()) {
-      return;
-    }
-
-    const localX = ball.x - window.screenX;
-    const localY = ball.y - window.screenY;
+    // Convert global coordinates to local canvas coordinates
+    const localX = this.x - window.screenX;
+    const localY = this.y - window.screenY;
 
     ctx.beginPath();
-    ctx.arc(localX, localY, ball.radius, 0, Math.PI * 2);
-
+    ctx.arc(localX, localY, this.radius, 0, Math.PI * 2);
     ctx.fillStyle = "red";
     ctx.fill();
   }
 
-  setVisibility(isVisible) {
-    if (isVisible) {
-      // Show / Start rendering the 2D ball
-      isBallVisible = true;
-    } else {
-      // Hide / Pause the 2D ball
-      isBallVisible = false;
-    }
+  /***********************
+   * CHECK VISIBILITY
+   ***********************/
+  checkVisibility() {
+    const left = window.screenX;
+    const right = left + window.innerWidth;
+    const top = window.screenY;
+    const bottom = top + window.innerHeight;
+
+    this.isVisible = (
+      this.x + this.radius >= left &&
+      this.x - this.radius <= right &&
+      this.y + this.radius >= top &&
+      this.y - this.radius <= bottom
+    );
+  }
+
+  /***********************
+   * SET BALL DATA (for child tabs receiving updates)
+   ***********************/
+  setFromData(data) {
+    this.x = data.x;
+    this.y = data.y;
+    this.vx = data.vx;
+    this.vy = data.vy;
+    this.radius = data.radius;
   }
 }
