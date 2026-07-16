@@ -18,6 +18,15 @@
     <script>
         /*!
          * Multi-Window Bouncing Ball - Parent Tab
+         *
+         * The parent owns the ball simulation. It tracks every tab (itself +
+         * children) as a rectangle in a shared "world" coordinate space and
+         * bounces the ball inside the union of all rectangles.
+         *
+         * When a child is ATTACHED in the same browser window it shares the
+         * parent's screenX/screenY, so we give it a virtual tile offset
+         * (stacked below the parent) so the world bounds actually grow and
+         * the child mirrors a different slice of the world.
          */
 
         // === Canvas Setup ===
@@ -74,9 +83,11 @@
             }
         }
 
-        // === Tab Tracking ===
-        const tabs = {};
+        // === Tab / World Tracking ===
         const TAB_ID = 'parent-' + Math.random().toString(36).slice(2, 11);
+
+        // tabs[id] = { id, x, y, width, height, attached }
+        const tabs = {};
 
         function getMyTab() {
             return {
@@ -85,23 +96,66 @@
                 y: window.screenY,
                 width: window.innerWidth,
                 height: window.innerHeight,
+                attached: false, // parent is never "attached"
             };
         }
 
-        function getWorldBounds() {
-            const allTabs = Object.values(tabs);
-            if (allTabs.length === 0) {
-                const me = getMyTab();
-                return { left: me.x, right: me.x + me.width, top: me.y, bottom: me.y + me.height };
+        // Compute the parent's own rectangle in world space.
+        function getParentRect() {
+            return getMyTab();
+        }
+
+        // Given the parent rect and the list of child tabs, assign each
+        // attached child a virtual tile so the world actually grows.
+        // Attached children are stacked vertically below the parent.
+        function resolveChildRects(parentRect) {
+            const resolved = {};
+            let cursorY = parentRect.y + parentRect.height; // stack below parent
+            for (const tab of Object.values(tabs)) {
+                if (tab.id === TAB_ID) continue;
+                if (tab.attached) {
+                    resolved[tab.id] = {
+                        id: tab.id,
+                        x: parentRect.x,
+                        y: cursorY,
+                        width: parentRect.width,
+                        height: parentRect.height,
+                        attached: true,
+                    };
+                    cursorY += parentRect.height;
+                } else {
+                    // Detached: use its real screen position
+                    resolved[tab.id] = {
+                        id: tab.id,
+                        x: tab.x,
+                        y: tab.y,
+                        width: tab.width,
+                        height: tab.height,
+                        attached: false,
+                    };
+                }
             }
+            return resolved;
+        }
+
+        function getWorldBounds() {
+            const parentRect = getParentRect();
+            const childRects = resolveChildRects(parentRect);
+            const all = [parentRect, ...Object.values(childRects)];
+
             let left = Infinity, right = -Infinity, top = Infinity, bottom = -Infinity;
-            for (const tab of allTabs) {
-                left = Math.min(left, tab.x);
-                right = Math.max(right, tab.x + tab.width);
-                top = Math.min(top, tab.y);
-                bottom = Math.max(bottom, tab.y + tab.height);
+            for (const r of all) {
+                left = Math.min(left, r.x);
+                right = Math.max(right, r.x + r.width);
+                top = Math.min(top, r.y);
+                bottom = Math.max(bottom, r.y + r.height);
             }
             return { left, right, top, bottom };
+        }
+
+        // Where does THIS tab (parent) sit in world space? Always its own rect.
+        function getParentWorldRect() {
+            return getParentRect();
         }
 
         // === Ball Initialization - guaranteed non-zero velocity ===
@@ -123,12 +177,13 @@
         );
 
         // === AcrossTabs Setup ===
-        // Use `tabManager` instead of `parent` to avoid collision with window.parent
         const AcrossTabsParent = AcrossTabs.default ? AcrossTabs.default.Parent : AcrossTabs.Parent;
         const tabManager = new AcrossTabsParent({
             onReady: () => console.log('Parent ready, tabId:', TAB_ID),
             onChildCommunication: (message, tabInfo) => {
+                if (!message) return;
                 if (message.type === 'window') {
+                    // child reports its real screen rect + whether attached
                     tabs[message.tab.id] = message.tab;
                 }
             },
@@ -141,13 +196,16 @@
         // === Game Loop ===
         function loop() {
             tabs[TAB_ID] = getMyTab();
-            ball.update(getWorldBounds());
+            const bounds = getWorldBounds();
+            ball.update(bounds);
             ball.draw();
 
-            // Broadcast ball state to all child tabs
+            // Send ball + parent rect to children so they can resolve their
+            // own world rectangle (attached vs detached).
             tabManager.broadCastAll({
                 type: 'ball',
                 ball: { x: ball.x, y: ball.y, vx: ball.vx, vy: ball.vy, radius: ball.radius },
+                parentRect: getParentWorldRect(),
             });
 
             requestAnimationFrame(loop);
