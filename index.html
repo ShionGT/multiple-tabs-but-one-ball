@@ -6,14 +6,14 @@
     <style>
         body, html { margin: 0; padding: 0; overflow: hidden; background: #000; }
         #gameCanvas { display: block; }
-        #createTabButton { position: fixed; top: 10px; left: 10px; z-index: 100; padding: 8px 16px; background: #c5a572; color: #000; border: none; cursor: pointer; font-family: sans-serif; text-transform: uppercase; }
+        #createTabButton { position: fixed; top: 10px; left: 10px; z-index: 100; padding: 8px 16px; border-radius: 10px; background: #178ded; color: #ffffff; border: none; cursor: pointer; font-family: sans-serif; text-transform: uppercase; }
         footer { position: fixed; bottom: 0; width: 100%; text-align: center; color: #666; font-size: 12px; }
     </style>
 </head>
 <body>
     <button id="createTabButton">Create New Tab</button>
     <canvas id="gameCanvas" width="800" height="600"></canvas>
-    <footer>&copy; 2026 Shion Toda. All rights reserved.</footer>
+    <footer>&copy; 2026 Shion Toda.</footer>
     <script src="https://unpkg.com/across-tabs@1.4.0/dist/across-tabs.min.js"></script>
     <script>
         /*!
@@ -45,19 +45,19 @@
                 this.x += this.vx;
                 this.y += this.vy;
 
-                if (this.x - this.radius <= bounds.left) {
+                if (this.x - this.radius < bounds.left) {
                     this.x = bounds.left + this.radius;
                     this.vx *= -1;
                 }
-                if (this.x + this.radius >= bounds.right) {
+                if (this.x + this.radius > bounds.right) {
                     this.x = bounds.right - this.radius;
                     this.vx *= -1;
                 }
-                if (this.y - this.radius <= bounds.top) {
+                if (this.y - this.radius < bounds.top) {
                     this.y = bounds.top + this.radius;
                     this.vy *= -1;
                 }
-                if (this.y + this.radius >= bounds.bottom) {
+                if (this.y + this.radius > bounds.bottom) {
                     this.y = bounds.bottom - this.radius;
                     this.vy *= -1;
                 }
