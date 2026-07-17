@@ -17,15 +17,14 @@
         /*!
          * Multi-Window Bouncing Ball - Child Tab
          *
-         * Mirrors the ball broadcast by the parent. The ball lives in a shared
-         * "world" coordinate space owned by the parent.
+         * The parent owns the simulation and broadcasts the ball position plus
+         * the list of all tab rectangles. The child simply renders the ball at
+         * its real screen-space position whenever it falls within this tab's
+         * own screen rectangle.
          *
-         * - DETACHED (own window): this tab's world rect = its real
-         *   screenX/screenY, so the ball appears at its physical position.
-         * - ATTACHED (same window as parent): screenX/screenY are identical, so
-         *   the parent assigns this tab a virtual tile (stacked below the
-         *   parent). We render that slice of the world, which makes the child
-         *   mirror a different part of the bouncing ball.
+         * No virtual tiles. No attached/detached distinction. The ball moves
+         * in real screen coordinates and each tab shows it when it's inside
+         * that tab's screen area.
          */
 
         // === Canvas Setup ===
@@ -49,10 +48,10 @@
                 this.radius = radius;
             }
 
-            draw(localOriginX, localOriginY) {
+            draw() {
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
-                const localX = this.x - localOriginX;
-                const localY = this.y - localOriginY;
+                const localX = this.x - window.screenX;
+                const localY = this.y - window.screenY;
                 ctx.fillStyle = 'red';
                 ctx.beginPath();
                 ctx.arc(localX, localY, this.radius, 0, Math.PI * 2);
@@ -70,14 +69,25 @@
 
         let ball = null;
         let myTabId = null;
-        let parentRect = null;   // last known parent rect from broadcast
-        let myResolvedRect = null; // our rect in world space (resolved)
 
-        // Report our real window rect + whether we share the parent's window.
+        // Is the ball inside this tab's screen rectangle?
+        function isBallVisible() {
+            if (!ball) return false;
+            const left = window.screenX;
+            const right = left + window.innerWidth;
+            const top = window.screenY;
+            const bottom = top + window.innerHeight;
+            return (
+                ball.x + ball.radius >= left &&
+                ball.x - ball.radius <= right &&
+                ball.y + ball.radius >= top &&
+                ball.y - ball.radius <= bottom
+            );
+        }
+
+        // Report our real window rect to the parent
         function reportWindow() {
-            if (!child || !myTabId || !parentRect) return;
-            const attached =
-                window.screenX === parentRect.x && window.screenY === parentRect.y;
+            if (!child || !myTabId) return;
             child.sendMessageToParent({
                 type: 'window',
                 tab: {
@@ -86,47 +96,8 @@
                     y: window.screenY,
                     width: window.innerWidth,
                     height: window.innerHeight,
-                    attached: attached,
                 },
             });
-        }
-
-        // Resolve our rectangle in world space using the parent's rect.
-        function resolveMyRect() {
-            if (!parentRect) return null;
-            const attached =
-                window.screenX === parentRect.x && window.screenY === parentRect.y;
-            if (attached) {
-                // Parent assigns attached children a virtual tile stacked below.
-                // We ask: how many attached children are BELOW us? Simpler:
-                // we don't know our index from here, so we just place ourselves
-                // directly below the parent by one tile. (Parent uses the same
-                // rule for the first attached child; multiple attached children
-                // stack — see note.) For a single attached child this is exact.
-                return {
-                    x: parentRect.x,
-                    y: parentRect.y + parentRect.height,
-                    width: parentRect.width,
-                    height: parentRect.height,
-                };
-            }
-            // Detached: real screen position
-            return {
-                x: window.screenX,
-                y: window.screenY,
-                width: window.innerWidth,
-                height: window.innerHeight,
-            };
-        }
-
-        function isBallVisibleIn(rect) {
-            if (!ball || !rect) return false;
-            return (
-                ball.x + ball.radius >= rect.x &&
-                ball.x - ball.radius <= rect.x + rect.width &&
-                ball.y + ball.radius >= rect.y &&
-                ball.y - ball.radius <= rect.y + rect.height
-            );
         }
 
         // === AcrossTabs Setup ===
@@ -138,10 +109,12 @@
                     try {
                         myTabId = child.getTabInfo().id;
                         console.log('Child ready, tabId:', myTabId);
+                        reportWindow();
                     } catch (e) {
                         setTimeout(() => {
                             myTabId = child.getTabInfo().id;
                             console.log('Child ready, tabId:', myTabId);
+                            reportWindow();
                         }, 100);
                     }
                 });
@@ -153,8 +126,6 @@
                         ball = new Ball(0, 0, 0, 0, 20);
                     }
                     ball.setFromData(message.ball);
-                    parentRect = message.parentRect || null;
-                    // Re-report window state now that we know parentRect
                     reportWindow();
                 }
             },
@@ -162,16 +133,13 @@
 
         // Keep parent informed of our window position
         window.addEventListener('resize', reportWindow);
-        window.addEventListener('scroll', reportWindow);
         setInterval(reportWindow, 1000);
 
         // === Game Loop ===
         function loop() {
-            const rect = resolveMyRect();
-            if (ball && rect && isBallVisibleIn(rect)) {
-                ball.draw(rect.x, rect.y);
-            } else if (ball) {
-                // Clear so a stale frame doesn't linger when ball leaves view
+            if (ball && isBallVisible()) {
+                ball.draw();
+            } else {
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
             }
             requestAnimationFrame(loop);

@@ -19,14 +19,17 @@
         /*!
          * Multi-Window Bouncing Ball - Parent Tab
          *
-         * The parent owns the ball simulation. It tracks every tab (itself +
-         * children) as a rectangle in a shared "world" coordinate space and
-         * bounces the ball inside the union of all rectangles.
+         * Collision model: each tab is a rectangle in screen space. The ball
+         * bounces inside whatever tab it's currently in, BUT an edge is
+         * "open" (ball passes through) if another tab's rectangle touches or
+         * overlaps that edge. If no other tab is adjacent on that side, the
+         * ball bounces off.
          *
-         * When a child is ATTACHED in the same browser window it shares the
-         * parent's screenX/screenY, so we give it a virtual tile offset
-         * (stacked below the parent) so the world bounds actually grow and
-         * the child mirrors a different slice of the world.
+         * Tabs in the same browser window share the same screenX/screenY, so
+         * they fully overlap → all edges are open → ball passes through.
+         * Tabs in separate windows placed side by side on screen → ball
+         * passes through the touching edges, bounces on the outer edges.
+         * Tabs far apart → ball bounces inside whichever tab it's in.
          */
 
         // === Canvas Setup ===
@@ -50,26 +53,99 @@
                 this.radius = radius;
             }
 
-            update(bounds) {
+            // Per-edge collision with tab adjacency detection.
+            // tabs: array of {x, y, w, h} rectangles in screen space.
+            // The ball must stay inside whichever tab it's in; an edge bounces
+            // only if no other tab touches that edge.
+            update(tabRects) {
                 this.x += this.vx;
                 this.y += this.vy;
 
-                if (this.x - this.radius < bounds.left) {
-                    this.x = bounds.left + this.radius;
-                    this.vx *= -1;
+                // Find which tab the ball center is currently inside
+                let currentTab = null;
+                for (const t of tabRects) {
+                    if (this.x >= t.x && this.x <= t.x + t.w &&
+                        this.y >= t.y && this.y <= t.y + t.h) {
+                        currentTab = t;
+                        break;
+                    }
                 }
-                if (this.x + this.radius > bounds.right) {
-                    this.x = bounds.right - this.radius;
-                    this.vx *= -1;
+                // If not clearly inside any tab, find the closest one
+                if (!currentTab && tabRects.length > 0) {
+                    let minDist = Infinity;
+                    for (const t of tabRects) {
+                        const cx = t.x + t.w / 2;
+                        const cy = t.y + t.h / 2;
+                        const d = Math.hypot(this.x - cx, this.y - cy);
+                        if (d < minDist) { minDist = d; currentTab = t; }
+                    }
                 }
-                if (this.y - this.radius < bounds.top) {
-                    this.y = bounds.top + this.radius;
-                    this.vy *= -1;
+                if (!currentTab) return;
+
+                // For each of the 4 edges of currentTab, check if any OTHER
+                // tab touches/overlaps that edge. If so → open (pass through).
+                const others = tabRects.filter(t => t !== currentTab);
+
+                // LEFT edge
+                if (this.x - this.radius < currentTab.x) {
+                    const open = others.some(t => this._edgesTouchLeft(currentTab, t));
+                    if (open) {
+                        // pass through — clamp to just inside so we don't lose the ball
+                        this.x = currentTab.x + this.radius;
+                    } else {
+                        this.x = currentTab.x + this.radius;
+                        this.vx *= -1;
+                    }
                 }
-                if (this.y + this.radius > bounds.bottom) {
-                    this.y = bounds.bottom - this.radius;
-                    this.vy *= -1;
+                // RIGHT edge
+                if (this.x + this.radius > currentTab.x + currentTab.w) {
+                    const open = others.some(t => this._edgesTouchRight(currentTab, t));
+                    if (open) {
+                        this.x = currentTab.x + currentTab.w - this.radius;
+                    } else {
+                        this.x = currentTab.x + currentTab.w - this.radius;
+                        this.vx *= -1;
+                    }
                 }
+                // TOP edge
+                if (this.y - this.radius < currentTab.y) {
+                    const open = others.some(t => this._edgesTouchTop(currentTab, t));
+                    if (open) {
+                        this.y = currentTab.y + this.radius;
+                    } else {
+                        this.y = currentTab.y + this.radius;
+                        this.vy *= -1;
+                    }
+                }
+                // BOTTOM edge
+                if (this.y + this.radius > currentTab.y + currentTab.h) {
+                    const open = others.some(t => this._edgesTouchBottom(currentTab, t));
+                    if (open) {
+                        this.y = currentTab.y + currentTab.h - this.radius;
+                    } else {
+                        this.y = currentTab.y + currentTab.h - this.radius;
+                        this.vy *= -1;
+                    }
+                }
+            }
+
+            // Edge-touch detection: does tab `other` touch the LEFT edge of `cur`?
+            // Left edge of cur is the line x = cur.x, from cur.y to cur.y+cur.h
+            _edgesTouchLeft(cur, other) {
+                return other.x + other.w >= cur.x - 2 && other.x <= cur.x + 2 &&
+                       other.y < cur.y + cur.h && other.y + other.h > cur.y;
+            }
+            _edgesTouchRight(cur, other) {
+                return other.x <= cur.x + cur.w + 2 && other.x >= cur.x + cur.w - 2 &&
+                       other.y < cur.y + cur.h && other.y + other.h > cur.y;
+            }
+            _edgesTouchTop(cur, other) {
+                return other.y + other.h >= cur.y - 2 && other.y <= cur.y + 2 &&
+                       other.x < cur.x + cur.w && other.x + other.w > cur.x;
+            }
+            _edgesTouchBottom(cur, other) {
+                return other.y <= cur.y + cur.h + 2 && other.y >= cur.y + cur.h - 2 &&
+                       other.x < cur.x + cur.w && other.x + other.w > cur.x;
             }
 
             draw() {
@@ -83,10 +159,9 @@
             }
         }
 
-        // === Tab / World Tracking ===
+        // === Tab Tracking ===
         const TAB_ID = 'parent-' + Math.random().toString(36).slice(2, 11);
-
-        // tabs[id] = { id, x, y, width, height, attached }
+        // tabs[id] = { id, x, y, width, height }
         const tabs = {};
 
         function getMyTab() {
@@ -96,66 +171,14 @@
                 y: window.screenY,
                 width: window.innerWidth,
                 height: window.innerHeight,
-                attached: false, // parent is never "attached"
             };
         }
 
-        // Compute the parent's own rectangle in world space.
-        function getParentRect() {
-            return getMyTab();
-        }
-
-        // Given the parent rect and the list of child tabs, assign each
-        // attached child a virtual tile so the world actually grows.
-        // Attached children are stacked vertically below the parent.
-        function resolveChildRects(parentRect) {
-            const resolved = {};
-            let cursorY = parentRect.y + parentRect.height; // stack below parent
-            for (const tab of Object.values(tabs)) {
-                if (tab.id === TAB_ID) continue;
-                if (tab.attached) {
-                    resolved[tab.id] = {
-                        id: tab.id,
-                        x: parentRect.x,
-                        y: cursorY,
-                        width: parentRect.width,
-                        height: parentRect.height,
-                        attached: true,
-                    };
-                    cursorY += parentRect.height;
-                } else {
-                    // Detached: use its real screen position
-                    resolved[tab.id] = {
-                        id: tab.id,
-                        x: tab.x,
-                        y: tab.y,
-                        width: tab.width,
-                        height: tab.height,
-                        attached: false,
-                    };
-                }
-            }
-            return resolved;
-        }
-
-        function getWorldBounds() {
-            const parentRect = getParentRect();
-            const childRects = resolveChildRects(parentRect);
-            const all = [parentRect, ...Object.values(childRects)];
-
-            let left = Infinity, right = -Infinity, top = Infinity, bottom = -Infinity;
-            for (const r of all) {
-                left = Math.min(left, r.x);
-                right = Math.max(right, r.x + r.width);
-                top = Math.min(top, r.y);
-                bottom = Math.max(bottom, r.y + r.height);
-            }
-            return { left, right, top, bottom };
-        }
-
-        // Where does THIS tab (parent) sit in world space? Always its own rect.
-        function getParentWorldRect() {
-            return getParentRect();
+        // Build array of {x, y, w, h} rectangles for all known tabs
+        function getTabRects() {
+            return Object.values(tabs).map(t => ({
+                x: t.x, y: t.y, w: t.width, h: t.height,
+            }));
         }
 
         // === Ball Initialization - guaranteed non-zero velocity ===
@@ -183,7 +206,6 @@
             onChildCommunication: (message, tabInfo) => {
                 if (!message) return;
                 if (message.type === 'window') {
-                    // child reports its real screen rect + whether attached
                     tabs[message.tab.id] = message.tab;
                 }
             },
@@ -196,16 +218,17 @@
         // === Game Loop ===
         function loop() {
             tabs[TAB_ID] = getMyTab();
-            const bounds = getWorldBounds();
-            ball.update(bounds);
+            const rects = getTabRects();
+            ball.update(rects);
             ball.draw();
 
-            // Send ball + parent rect to children so they can resolve their
-            // own world rectangle (attached vs detached).
+            // Broadcast ball + all tab rects to children
             tabManager.broadCastAll({
                 type: 'ball',
                 ball: { x: ball.x, y: ball.y, vx: ball.vx, vy: ball.vy, radius: ball.radius },
-                parentRect: getParentWorldRect(),
+                tabs: Object.values(tabs).map(t => ({
+                    id: t.id, x: t.x, y: t.y, w: t.width, h: t.height,
+                })),
             });
 
             requestAnimationFrame(loop);
