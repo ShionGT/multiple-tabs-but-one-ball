@@ -70,21 +70,6 @@
         let ball = null;
         let myTabId = null;
 
-        // Is the ball inside this tab's screen rectangle?
-        function isBallVisible() {
-            if (!ball) return false;
-            const left = window.screenX;
-            const right = left + window.innerWidth;
-            const top = window.screenY;
-            const bottom = top + window.innerHeight;
-            return (
-                ball.x + ball.radius >= left &&
-                ball.x - ball.radius <= right &&
-                ball.y + ball.radius >= top &&
-                ball.y - ball.radius <= bottom
-            );
-        }
-
         // Report our real window rect to the parent
         function reportWindow() {
             if (!child || !myTabId) return;
@@ -123,11 +108,13 @@
                 if (!message) return;
                 if (message.type === 'ball') {
                     if (!ball) {
+                        console.error('Received ball data before ball was initialized');
                         ball = new Ball(0, 0, 0, 0, 20);
                     }
                     ball.setFromData(message.ball);
                     reportWindow();
                 }
+                loop();
             },
         });
 
@@ -137,15 +124,13 @@
 
         // === Game Loop ===
         function loop() {
-            if (ball && isBallVisible()) {
+            if (ball) {
                 ball.draw();
             } else {
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
             }
             requestAnimationFrame(loop);
         }
-
-        loop();
     </script>
 </body>
 </html>

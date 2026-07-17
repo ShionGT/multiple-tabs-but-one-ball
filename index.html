@@ -223,6 +223,7 @@
             ball.draw();
 
             // Broadcast ball + all tab rects to children
+            // console.log('Broadcasting ball and tab info to children');
             tabManager.broadCastAll({
                 type: 'ball',
                 ball: { x: ball.x, y: ball.y, vx: ball.vx, vy: ball.vy, radius: ball.radius },
@@ -230,6 +231,7 @@
                     id: t.id, x: t.x, y: t.y, w: t.width, h: t.height,
                 })),
             });
+            // console.log('Broadcast complete');
 
             requestAnimationFrame(loop);
         }
