@@ -17,14 +17,14 @@
         /*!
          * Multi-Window Bouncing Ball - Child Tab
          *
-         * The parent owns the simulation and broadcasts the ball position plus
-         * the list of all tab rectangles. The child simply renders the ball at
-         * its real screen-space position whenever it falls within this tab's
-         * own screen rectangle.
+         * Receives ball position from the parent and renders it when it's
+         * within this tab's screen rectangle. The parent owns all physics
+         * and collision; the child only draws.
          *
-         * No virtual tiles. No attached/detached distinction. The ball moves
-         * in real screen coordinates and each tab shows it when it's inside
-         * that tab's screen area.
+         * Uses requestAnimationFrame for rendering (fine when tab is visible).
+         * When the child tab is in the background, rAF stops but that's OK —
+         * there's nothing to see. When it comes back to the foreground, the
+         * latest ball data arrives via postMessage and rendering resumes.
          */
 
         // === Canvas Setup ===
@@ -69,6 +69,22 @@
 
         let ball = null;
         let myTabId = null;
+        let lastBallData = null; // latest ball data from parent
+
+        // Is the ball inside this tab's screen rectangle?
+        function isBallVisible() {
+            if (!ball) return false;
+            const left = window.screenX;
+            const right = left + window.innerWidth;
+            const top = window.screenY;
+            const bottom = top + window.innerHeight;
+            return (
+                ball.x + ball.radius >= left &&
+                ball.x - ball.radius <= right &&
+                ball.y + ball.radius >= top &&
+                ball.y - ball.radius <= bottom
+            );
+        }
 
         // Report our real window rect to the parent
         function reportWindow() {
@@ -108,13 +124,11 @@
                 if (!message) return;
                 if (message.type === 'ball') {
                     if (!ball) {
-                        console.error('Received ball data before ball was initialized');
                         ball = new Ball(0, 0, 0, 0, 20);
                     }
                     ball.setFromData(message.ball);
                     reportWindow();
                 }
-                loop();
             },
         });
 
@@ -122,15 +136,19 @@
         window.addEventListener('resize', reportWindow);
         setInterval(reportWindow, 1000);
 
-        // === Game Loop ===
+        // === Render Loop ===
+        // requestAnimationFrame is fine here — the child only needs to draw
+        // when visible. When backgrounded, rAF pauses (nothing to see).
         function loop() {
-            if (ball) {
+            if (ball && isBallVisible()) {
                 ball.draw();
             } else {
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
             }
             requestAnimationFrame(loop);
         }
+
+        loop();
     </script>
 </body>
 </html>
